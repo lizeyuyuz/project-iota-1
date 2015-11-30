@@ -1,33 +1,12 @@
-from __future__ import division
-import numpy as np
-import numpy.linalg as npl
-import matplotlib.pyplot as plt
-import nibabel as nib
-from sys import argv
-import linear_modeling
+from scipy import stats
 
-"""
-set the directory to project-iota and run below command on terminal:
-
-python linear_modeling_script sub001/BOLD/task001_run001/filtered_func_data_mni
-
-"""
-
-######### set gray colormap and nearest neighbor interpolation by default
-#plt.rcParams['image.cmap'] = 'gray'
-#plt.rcParams['image.interpolation'] = 'nearest'
-
-######### Load f1, the BOLD image.
-#f1 = argv[1] # sub001/BOLD/task001_run001/bold
-# or use the filtered data: sub001/BOLD/task001_run001/filtered_func_data_mni
-
-img = nib.load("../../../data/sub001/BOLD/task001_run001/filtered_func_data_mni.nii.gz")
-#img = nib.load('../../../data/' + f1 + '.nii.gz')
-data = img.get_data()
+img1 = nib.load("../../../data/sub001/BOLD/task003_run001/filtered_func_data_mni.nii.gz")
+img = nib.load('../../../data/' + f1 + '.nii.gz')
+data1 = img1.get_data()
 
 ######### Get n_trs and voxel shape
-n_trs = data.shape[-1]
-vol_shape = data.shape[:-1]
+n_trs1 = data1.shape[-1]
+vol_shape1 = data1.shape[:-1]
 
 ######### Construct design matrix:
 # Load the convolution files.
@@ -49,7 +28,7 @@ plt.imshow(design_mat, aspect=0.1)
 
 
 ######### we take the mean volume (over time), and do a histogram of the values
-mean_vol = np.mean(data, axis=-1)
+mean_vol1 = np.mean(data1, axis=-1)
 plt.hist(np.ravel(mean_vol), bins=100)
 plt.xlabel('Voxels')
 plt.ylabel('Frequency')
@@ -57,32 +36,31 @@ plt.title('Mean Volume Over Time')
 plt.show()
 #plt.savefig("../../../data/design_matrix/mean_vol.png")
 # mask out the outer-brain noise using mean volumes over time.
-in_brain_mask = mean_vol > 5000
+in_brain_mask1 = mean_vol1 > 5000
 # We can use this 3D mask to index into our 4D dataset.
 # This selects all the voxel time-courses for voxels within the brain
 # (as defined by the mask)
-in_brain_tcs = data[in_brain_mask, :]
+in_brain_tcs1 = data1[in_brain_mask1, :]
 
 
 
 ######### Lastly, do t test on betas:
-y = in_brain_tcs.T
+y1 = in_brain_tcs1.T
 X = design_mat
 
-beta, MRSS, df = linear_modeling.beta_est(y,X)
+beta1, MRSS1, df1 = linear_modeling.beta_est(y1,X)
 
 # Visualizing betas for the middle slice
 # First reshape
-b_vols = np.zeros(vol_shape + (beta.shape[0],))
-b_vols[in_brain_mask, :] = beta.T
+b_vols1 = linear_modeling.reshape(in_brain_mask1, vol_shape, beta1)
 # Then plot them on the same plot with uniform scale
 fig, axes = plt.subplots(nrows=2, ncols=4)
 for i, ax in zip(range(0,8,1), axes.flat):
-    im = ax.imshow(b_vols[:, :, 45, i], cmap = 'gray')
+    im = ax.imshow(b_vols[:, :, 45, i], cmap = 'jet')
 fig.subplots_adjust(right=0.85)
 cax = fig.add_axes([0.9, 0.15, 0.03, 0.7])
 fig.colorbar(im, cax=cax)
-plt.show()
+#plt.show()
 
 # To test significance of betas:
 # Create contrast matrix for each beta:
@@ -98,41 +76,31 @@ for i in range(0,9,1):
 # save the t values and p values in txt files.
 #np.savetxt('../../../data/maps/t_stat.txt', t_mat)
 #np.savetxt('../../../data/maps/p_val.txt', p_mat)
-
-# Reshape t values
 t_val = np.zeros(vol_shape + (t_mat.shape[0],))
 t_val[in_brain_mask, :] = t_mat.T
 # Reshape p values
 p_val = np.ones(vol_shape + (p_mat.shape[0],))
 p_val[in_brain_mask, :] = p_mat.T
 
-# Visualizing t values for the middle slice
-fig, axes = plt.subplots(nrows=2, ncols=4)
-for i, ax in zip(range(0,8,1), axes.flat):
-    im = ax.imshow(t_val[:, :, 45, i], cmap = 'RdYlBu')
-fig.subplots_adjust(right=0.85)
-cax = fig.add_axes([0.9, 0.15, 0.03, 0.7])
-fig.colorbar(im, cax=cax)
-plt.show()
 
-# Visualizing p values for the middle slice in gray
-fig, axes = plt.subplots(nrows=2, ncols=4)
-for i, ax in zip(range(0,8,1), axes.flat):
-    im = ax.imshow(p_val[:, :, 45, i], cmap = 'gray')
-fig.subplots_adjust(right=0.85)
-cax = fig.add_axes([0.9, 0.15, 0.03, 0.7])
-fig.colorbar(im, cax=cax)
-plt.show()
+# n_back contrast
+t_values, p_values = stats.ttest_ind(beta1, beta, axis = 1, equal_var = False)
 
 
-# significant p values
-vols_reshape = np.ones(vol_shape + (9,))
-for x in range(0,9,1):
-    sig_mask = p_val[...,x] <= (0.05 / y.shape[1])
-    arr = np.reshape(p_val[...,x].ravel(), (-1,))
-    arr = arr[sig_mask.ravel()]
-    vols_reshape[sig_mask, x] = arr.T
+# smoothing
+fmri_img = image.smooth_img('../../../data/sub001/BOLD/task001_run001/filtered_func_data_mni.nii.gz', fwhm=6)
+mean_img = image.mean_img(fmri_img)
+# Thresholding
+p_val = np.ones(vol_shape + (p_mat.shape[0],))
+p_val[in_brain_mask, :] = p_mat.T
 
-plt.imshow(vols_reshape[:,:,45,4])
-plt.colorbar()
-plt.show()
+log_p_values = -np.log10(p_val[..., 5])
+log_p_values[np.isnan(log_p_values)] = 0.
+log_p_values[log_p_values > 10.] = 10.
+log_p_values[log_p_values < -np.log10(0.05/137)] = 0
+plot_stat_map(nibabel.Nifti1Image(log_p_values, img.get_affine()),
+              mean_img, title='Thresholded p-values', annotate=False,
+              colorbar=True)
+
+
+
